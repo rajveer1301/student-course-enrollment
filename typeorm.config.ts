@@ -7,7 +7,8 @@ export const dbConfig: TypeOrmModuleOptions = {
   host: process.env.DB_HOST,
   port: parseInt(process.env.DB_PORT),
   database: process.env.DB_DATABASE,
-  synchronize: false,
+  entities: [process.env.DB_ENTITIES_DIRECTORY],
+  synchronize: true,
   cache: true,
   migrationsRun: true,
 };
