@@ -11,5 +11,3 @@ export const dbConfig: TypeOrmModuleOptions = {
   cache: true,
   migrationsRun: true,
 };
-
-console.log(dbConfig);
