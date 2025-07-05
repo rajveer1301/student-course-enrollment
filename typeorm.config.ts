@@ -5,6 +5,8 @@ require('dotenv').config();
 export const dbConfig: TypeOrmModuleOptions = {
   type: 'postgres',
   host: process.env.DB_HOST,
+  username: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
   port: parseInt(process.env.DB_PORT),
   database: process.env.DB_DATABASE,
   entities: [process.env.DB_ENTITIES_DIRECTORY],
