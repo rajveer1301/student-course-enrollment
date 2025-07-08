@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateCollegeDto {
   @ApiProperty()
@@ -17,11 +18,15 @@ export class UpdateCollegeDto {
 export class PaginationDto {
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsString()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   limit?: number = 20;
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsString()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   skip?: number = 0;
 }

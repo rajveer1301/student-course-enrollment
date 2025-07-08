@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { StudentCourseMapping } from './student-course-mapping.entity';
 import { Repository } from 'typeorm';
@@ -18,132 +18,133 @@ export class StudentCourseMappingService {
     private readonly courseTimeTableSercice: CourseTimetablesService,
   ) {}
 
-  getTimeMs = (time: string) => new Date(`1970-01-01T${time}Z`).getTime();
-
-  hasOverlapAcrossCourses = (entries) => {
-    for (let i = 0; i < entries.length; i++) {
-      for (let j = i + 1; j < entries.length; j++) {
-        const a = entries[i];
-        const b = entries[j];
-
-        // Check same date & different course
-        if (
-          a.date === b.date &&
-          a.course_id.unique_id !== b.course_id.unique_id
-        ) {
-          const aStart = this.getTimeMs(a.start_time);
-          const aEnd = this.getTimeMs(a.end_time);
-          const bStart = this.getTimeMs(b.start_time);
-          const bEnd = this.getTimeMs(b.end_time);
-
-          if (aStart < bEnd && bStart < aEnd) {
-            console.log('Overlap found between:', a.unique_id, b.unique_id);
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  };
-
   async getStudentCouseMappings(student_id: string) {
-    const mappingDetails = await this.studentCourseMappingRepo.find({
-      where: {
-        student_id,
-      },
-    });
-    const course_ids = mappingDetails.map((details) => details.course_id);
-    const [userDetails, courseDetails] = await Promise.all([
-      this.studentService.findOne(student_id),
-      this.courseService.findAll({ course_ids } as any),
-    ]);
-    return {
-      student: userDetails,
-      courses: courseDetails,
-    };
+    try {
+      const mappingDetails = await this.studentCourseMappingRepo.find({
+        where: {
+          student_id,
+        },
+      });
+      const course_ids = mappingDetails.map((details) => details.course_id);
+      const [userDetails, courseDetails] = await Promise.all([
+        this.studentService.findOne(student_id),
+        this.courseService.findAll({ course_ids } as any),
+      ]);
+      return {
+        student: userDetails,
+        courses: courseDetails,
+      };
+    } catch (err) {
+      throw err;
+    }
   }
 
   async createStudentCourseMapping(
     createstudentCourseMappingDto: CreatestudentCourseMappingDto,
   ) {
     const { student_id, course_ids } = createstudentCourseMappingDto;
-    const existingMappings = await this.studentCourseMappingRepo.find({
-      where: {
-        student_id,
-      },
-    });
 
-    if (existingMappings.length) {
-      const existingCourseIds = existingMappings.map(
-        (mapping) => mapping.course_id,
+    try {
+      // Fetch existing mappings for this student
+      const existingMappings = await this.studentCourseMappingRepo.find({
+        where: { student_id },
+      });
+
+      // Check for duplicate course_ids
+      if (existingMappings.length) {
+        const existingCourseIds = existingMappings.map(
+          (mapping) => mapping.course_id,
+        );
+
+        if (existingCourseIds.some((id) => course_ids.includes(id))) {
+          throw new BadRequestException(
+            'You are enrolled for some of the courseIds, please refer to your enrolled courses. Retry with different courses',
+          );
+        }
+
+        course_ids.push(...existingCourseIds);
+      }
+
+      // Fetch related data
+      const [studentDetails, courseDetails, courseTimeTableDetails] =
+        await Promise.all([
+          this.studentService.findOne(student_id),
+          this.courseService.findAll({ course_ids } as any),
+          this.courseTimeTableSercice.findAll({ course_ids } as any),
+        ]);
+
+      // Validate course IDs
+      if (courseDetails.length !== course_ids.length) {
+        throw new BadRequestException('One or more course IDs are invalid');
+      }
+
+      // Validate all courses have timetable
+      const courseIdsWithTimetable = Array.from(
+        new Set(
+          courseTimeTableDetails.map(
+            (detail: any) => detail.course_id.unique_id,
+          ),
+        ),
       );
-      if (existingCourseIds.some((id) => course_ids.includes(id))) {
+
+      if (courseIdsWithTimetable.length !== courseDetails.length) {
+        const missingCourses = courseDetails.filter(
+          (detail) => !courseIdsWithTimetable.includes(detail.unique_id),
+        );
         throw new BadRequestException(
-          'You are enrolled for some of the courseIds, please refer to your enrolled courses. Retry with different courses',
+          `These courses don't have timetables. Deselect and try again: ${missingCourses
+            .map((x) => x.name)
+            .join(', ')}`,
         );
       }
-      course_ids.push(...existingCourseIds);
-    }
-    const [studentDetails, courseDetails, courseTimeTableDetails] =
-      await Promise.all([
-        this.studentService.findOne(student_id),
-        this.courseService.findAll({ course_ids } as any),
-        this.courseTimeTableSercice.findAll({ course_ids } as any),
-      ]);
 
-    if (courseDetails.length !== course_ids.length) {
-      throw new BadRequestException('One or more course Ids are invalid');
-    }
-    // validate each
-    const courseIdsFromTimeTable = Array.from(
-      new Set(
-        courseTimeTableDetails.map((detail: any) => detail.course_id.unique_id),
-      ),
-    );
-
-    if (courseIdsFromTimeTable.length !== courseDetails.length) {
-      const missingCourses = courseDetails.filter(
-        (detail) => !courseIdsFromTimeTable.includes(detail.unique_id),
+      // Validate all courses belong to student’s college
+      const studentCollegeId = (studentDetails.college_id as any).unique_id;
+      const courseCollegeIds = courseDetails.map(
+        (detail: any) => detail.college_id.unique_id,
       );
-      throw new BadRequestException(
-        `
-        These courses don't have time tables withing them deselect the courses and try again
-        Courses: ${missingCourses.map((x) => x.name).join(', ')}
-        `,
-      );
-    }
 
-    const { unique_id: studentCollegeId } = studentDetails.college_id as any;
-    const courseCollegeIds = courseDetails.map(
-      (detail: any) => detail.college_id.unique_id,
-    );
+      if (!courseCollegeIds.every((id) => id === studentCollegeId)) {
+        throw new BadRequestException(
+          'All courses must belong to the student’s college',
+        );
+      }
 
-    if (!courseCollegeIds.every((id) => id === studentCollegeId)) {
-      throw new BadRequestException(
-        'All courses must belong to the student’s college',
-      );
-    }
-
-    if (this.hasOverlapAcrossCourses(courseTimeTableDetails)) {
-      throw new BadRequestException('Time Table Overlaps');
-    }
-
-    const saveBody = [];
-    course_ids.forEach((id) =>
-      saveBody.push(
+      // Prepare data to save
+      const saveBody = course_ids.map((courseId) =>
         Object.assign(new StudentCourseMapping(), {
           student_id,
-          course_id: id,
+          course_id: courseId,
         }),
-      ),
-    );
+      );
 
-    return this.studentCourseMappingRepo
-      .createQueryBuilder()
-      .insert()
-      .into(StudentCourseMapping)
-      .values(saveBody)
-      .orIgnore()
-      .execute();
+      // 8. Insert and rely on DB for timetable overlap check
+      return await this.studentCourseMappingRepo
+        .createQueryBuilder()
+        .insert()
+        .into(StudentCourseMapping)
+        .values(saveBody)
+        .orIgnore()
+        .execute();
+    } catch (err: any) {
+      // Handle PostgreSQL trigger error for timetable overlap
+      if (
+        err.code === 'P0001' &&
+        err.message.includes('Time conflict detected')
+      ) {
+        throw new BadRequestException(
+          'Course timetable conflicts with existing enrolled courses',
+        );
+      }
+
+      // Handle unexpected DB errors
+      console.error('Unexpected DB error:', err.response);
+      throw new HttpException(
+        err.message ||
+          err.response.message ||
+          'Something went wrong while enrolling the student',
+        err.status || err.statusCode || err.response.statusCode,
+      );
+    }
   }
 }
