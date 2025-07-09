@@ -9,21 +9,25 @@ import {
 } from 'typeorm';
 import { Courses } from '../courses/courses.entity';
 import { IdGenerator } from 'src/common/Idgenerator';
+import { COURSE_TIMETABLE_DAYS } from './course-timetables.dto';
 
 @Entity('course_timetables')
-@Unique('date_start_end_time_course_unique', [
+@Unique('day_start_end_time_course_unique', [
   'course_id',
   'start_time',
   'end_time',
-  'date',
+  'day',
 ])
 export class CourseTimetables {
   @PrimaryColumn()
   @Index()
   unique_id: string = IdGenerator.generateUniqueId();
 
-  @Column({ type: 'date' })
-  date: string;
+  @Column({
+    type: 'enum',
+    enum: COURSE_TIMETABLE_DAYS,
+  })
+  day: string;
 
   @Column({ type: 'time' })
   start_time: string;

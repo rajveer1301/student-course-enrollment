@@ -20,16 +20,10 @@ export class CourseTimetablesService {
     private readonly courseTimetablesRepository: Repository<CourseTimetables>,
   ) {}
 
-  isOverlapping(a: CreateCourseTimetableDto, b: CreateCourseTimetableDto) {
-    const startA = new Date(`1970-01-01T${a.start_time}Z`).getTime();
-    const endA = new Date(`1970-01-01T${a.end_time}Z`).getTime();
-    const startB = new Date(`1970-01-01T${b.start_time}Z`).getTime();
-    const endB = new Date(`1970-01-01T${b.end_time}Z`).getTime();
-    return startA < endB && startB < endA;
-  }
+  // Note: Overlap validation is handled by database trigger
 
   async create(createDto: CreateCourseTimetableDto | CourseTimetables) {
-    const { course_id, date } = createDto;
+    const { course_id } = createDto;
     const courseDetails = await this.courseTimetablesRepository.query(
       `select unique_id from courses where unique_id = '${course_id}'`,
     );
@@ -37,33 +31,40 @@ export class CourseTimetablesService {
     if (!courseDetails.length) {
       throw new BadRequestException('Invalid Course Id');
     }
-    const otherSchedulesWithSameCourse =
-      await this.courseTimetablesRepository.find({
-        where: {
-          course_id: {
-            unique_id: course_id,
+
+    // The database trigger will handle overlap validation automatically
+    try {
+      return await this.courseTimetablesRepository
+        .createQueryBuilder()
+        .insert()
+        .into(CourseTimetables)
+        .values([
+          {
+            ...createDto,
+            unique_id: IdGenerator.generateUniqueId(),
           },
-        } as any,
-      });
-    otherSchedulesWithSameCourse.forEach((schedule) => {
-      if (schedule.date === date && this.isOverlapping(createDto, schedule)) {
-        throw new BadRequestException(
-          'Overalapping Time Table with same course',
-        );
+        ])
+        .orIgnore()
+        .execute();
+    } catch (error: any) {
+      // Handle optimized database trigger errors with structured error codes
+      console.log('Error in creating course timetable:', error);
+      // Handle timetable conflict errors
+      if (error.message?.includes('TIMETABLE_CONFLICT:')) {
+        const cleanMessage = error.message.replace('TIMETABLE_CONFLICT: ', '');
+        throw new BadRequestException(cleanMessage);
       }
-    });
-    return this.courseTimetablesRepository
-      .createQueryBuilder()
-      .insert()
-      .into(CourseTimetables)
-      .values([
-        {
-          ...createDto,
-          unique_id: IdGenerator.generateUniqueId(),
-        },
-      ])
-      .orIgnore()
-      .execute();
+      // Handle validation errors
+      if (error.message?.includes('VALIDATION_ERROR:')) {
+        const cleanMessage = error.message.replace('VALIDATION_ERROR: ', '');
+        throw new BadRequestException(cleanMessage);
+      }
+      // Fallback for any other trigger errors
+      if (error.code === 'P0001') {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
   }
 
   async findAll(
@@ -107,7 +108,26 @@ export class CourseTimetablesService {
   ): Promise<CourseTimetables> {
     const timetable = await this.findOne(id);
     Object.assign(timetable, updateDto);
-    return this.courseTimetablesRepository.save(timetable);
+    try {
+      return this.courseTimetablesRepository.save(timetable);
+    } catch (error: any) {
+      // Handle optimized database trigger errors with structured error codes
+      // Handle timetable conflict errors
+      if (error.message?.includes('TIMETABLE_CONFLICT:')) {
+        const cleanMessage = error.message.replace('TIMETABLE_CONFLICT: ', '');
+        throw new BadRequestException(cleanMessage);
+      }
+      // Handle validation errors
+      if (error.message?.includes('VALIDATION_ERROR:')) {
+        const cleanMessage = error.message.replace('VALIDATION_ERROR: ', '');
+        throw new BadRequestException(cleanMessage);
+      }
+      // Fallback for any other trigger errors
+      if (error.code === 'P0001') {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
   }
 
   async remove(id: string): Promise<void> {

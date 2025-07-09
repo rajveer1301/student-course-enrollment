@@ -1,11 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsDateString, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../colleges/colleges.dto';
 
+export const COURSE_TIMETABLE_DAYS = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
 export class CreateCourseTimetableDto {
-  @ApiProperty()
-  @IsDateString()
-  date: string;
+  @ApiProperty({
+    enum: COURSE_TIMETABLE_DAYS,
+    description: 'Day of the week for the course',
+  })
+  @IsString()
+  @IsIn(COURSE_TIMETABLE_DAYS)
+  day: string;
 
   @ApiProperty()
   @IsString()
@@ -21,10 +35,15 @@ export class CreateCourseTimetableDto {
 }
 
 export class UpdateCourseTimetableDto {
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    enum: COURSE_TIMETABLE_DAYS,
+    required: false,
+    description: 'Day of the week for the course',
+  })
   @IsOptional()
-  @IsDateString()
-  date?: string;
+  @IsString()
+  @IsIn(COURSE_TIMETABLE_DAYS)
+  day?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

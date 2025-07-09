@@ -12,5 +12,4 @@ export const dbConfig: TypeOrmModuleOptions = {
   entities: [process.env.DB_ENTITIES_DIRECTORY],
   synchronize: true,
   cache: true,
-  migrationsRun: true,
 };

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsArray, IsString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsString } from 'class-validator';
 
 export class CreatestudentCourseMappingDto {
   @ApiProperty()
@@ -10,6 +10,7 @@ export class CreatestudentCourseMappingDto {
   @ApiProperty()
   @Transform(({ value }) => Array.from(new Set(value)))
   @IsArray()
+  @ArrayNotEmpty()
   @IsString({ each: true })
   course_ids: string[];
 }
