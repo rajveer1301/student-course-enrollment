@@ -661,3 +661,85 @@ SELECT 'Database schema created successfully!' as message;
 SELECT 'Tables created: ' || count(*) as tables_created 
 FROM information_schema.tables 
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+
+-- =============================================================================
+-- TRIGGER MANAGEMENT FUNCTIONS FOR TYPEORM COMPATIBILITY
+-- =============================================================================
+
+-- Function to temporarily drop all custom triggers
+CREATE OR REPLACE FUNCTION drop_all_custom_triggers()
+RETURNS void AS $$
+BEGIN
+    -- Drop all our custom triggers
+    DROP TRIGGER IF EXISTS prevent_course_timetable_overlap_insert_optimized ON course_timetables;
+    DROP TRIGGER IF EXISTS prevent_course_timetable_overlap_update_optimized ON course_timetables;
+    DROP TRIGGER IF EXISTS prevent_student_enrollment_conflict_insert ON student_course_mapping;
+    DROP TRIGGER IF EXISTS prevent_student_enrollment_conflict_update ON student_course_mapping;
+    DROP TRIGGER IF EXISTS enforce_student_course_college_constraint ON student_course_mapping;
+    DROP TRIGGER IF EXISTS enforce_student_course_college_constraint_update ON student_course_mapping;
+    DROP TRIGGER IF EXISTS protect_enrolled_students_timetable_update ON course_timetables;
+    
+    -- Drop old trigger names as well
+    DROP TRIGGER IF EXISTS trigger_validate_course_timetable ON course_timetables;
+    DROP TRIGGER IF EXISTS trigger_validate_student_enrollment ON student_course_mapping;
+    
+    RAISE NOTICE 'All custom triggers have been dropped for schema synchronization';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to recreate all custom triggers
+CREATE OR REPLACE FUNCTION create_all_custom_triggers()
+RETURNS void AS $$
+BEGIN
+    -- Recreate Course Timetable Overlap triggers
+    CREATE TRIGGER prevent_course_timetable_overlap_insert_optimized
+        BEFORE INSERT ON course_timetables
+        FOR EACH ROW
+        EXECUTE FUNCTION check_course_timetable_overlap_optimized();
+
+    CREATE TRIGGER prevent_course_timetable_overlap_update_optimized
+        BEFORE UPDATE ON course_timetables
+        FOR EACH ROW
+        WHEN (
+            OLD.course_id IS DISTINCT FROM NEW.course_id OR
+            OLD.day IS DISTINCT FROM NEW.day OR
+            OLD.start_time IS DISTINCT FROM NEW.start_time OR
+            OLD.end_time IS DISTINCT FROM NEW.end_time
+        )
+        EXECUTE FUNCTION check_course_timetable_overlap_optimized();
+
+    -- Recreate Student Enrollment Conflict triggers
+    CREATE TRIGGER prevent_student_enrollment_conflict_insert
+        BEFORE INSERT ON student_course_mapping
+        FOR EACH ROW
+        EXECUTE FUNCTION check_student_course_timetable_conflict();
+
+    CREATE TRIGGER prevent_student_enrollment_conflict_update
+        BEFORE UPDATE ON student_course_mapping
+        FOR EACH ROW
+        WHEN (OLD.course_id IS DISTINCT FROM NEW.course_id OR OLD.student_id IS DISTINCT FROM NEW.student_id)
+        EXECUTE FUNCTION check_student_course_timetable_conflict();
+
+    -- Recreate College Constraint triggers
+    CREATE TRIGGER enforce_student_course_college_constraint
+        BEFORE INSERT ON student_course_mapping
+        FOR EACH ROW
+        EXECUTE FUNCTION check_student_course_college_constraint();
+
+    CREATE TRIGGER enforce_student_course_college_constraint_update
+        BEFORE UPDATE ON student_course_mapping
+        FOR EACH ROW
+        WHEN (OLD.student_id IS DISTINCT FROM NEW.student_id OR OLD.course_id IS DISTINCT FROM NEW.course_id)
+        EXECUTE FUNCTION check_student_course_college_constraint();
+
+    -- Recreate Timetable Update Protection trigger
+    CREATE TRIGGER protect_enrolled_students_timetable_update
+        BEFORE UPDATE ON course_timetables
+        FOR EACH ROW
+        EXECUTE FUNCTION protect_enrolled_students_from_timetable_changes();
+    
+    RAISE NOTICE 'All custom triggers have been recreated successfully';
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================================================
