@@ -22,8 +22,52 @@ export class CourseTimetablesService {
 
   // Note: Overlap validation is handled by database trigger
 
+  getNextDay(day) {
+    return (
+      new Date(`1970-01-04`).setDate(
+        [
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+        ].indexOf(day.trim()) + 1,
+      ) &&
+      [
+        'Sunday',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+      ][
+        ([
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+        ].indexOf(day.trim()) +
+          1) %
+          7
+      ]
+    );
+  }
+
   async create(createDto: CreateCourseTimetableDto | CourseTimetables) {
     const { course_id } = createDto;
+    const startTimeStamp = new Date(createDto.start_time).getTime();
+    const endTimeStamp = new Date(createDto.start_time).getTime();
+    const end_day =
+      startTimeStamp > endTimeStamp
+        ? this.getNextDay(createDto.day)
+        : createDto.day;
+
     const courseDetails = await this.courseTimetablesRepository.query(
       `select unique_id from courses where unique_id = '${course_id}'`,
     );
@@ -41,6 +85,7 @@ export class CourseTimetablesService {
         .values([
           {
             ...createDto,
+            end_day,
             unique_id: IdGenerator.generateUniqueId(),
           },
         ])
