@@ -3,12 +3,14 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { dbConfig } from 'typeorm.config';
 import { CollegesModule } from './modules/apis/colleges/colleges.module';
 import { CoursesModule } from './modules/apis/courses/courses.module';
 import { StudentsModule } from './modules/apis/students/students.module';
 import { CourseTimetablesModule } from './modules/apis/course-timetables/course-timetables.module';
 import { StudentCourseMappingModule } from './modules/apis/student-course-mapping/student-course-mapping.module';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { dbConfig } = require('../ormconfig');
 
 @Module({
   imports: [
