@@ -23,48 +23,38 @@ export class CourseTimetablesService {
   // Note: Overlap validation is handled by database trigger
 
   getNextDay(day) {
-    return (
-      new Date(`1970-01-04`).setDate(
-        [
-          'Sunday',
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-        ].indexOf(day.trim()) + 1,
-      ) &&
-      [
-        'Sunday',
+    return [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ][
+      ([
         'Monday',
         'Tuesday',
         'Wednesday',
         'Thursday',
         'Friday',
         'Saturday',
-      ][
-        ([
-          'Sunday',
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-        ].indexOf(day.trim()) +
-          1) %
-          7
-      ]
-    );
+        'Sunday',
+      ].indexOf(day) +
+        1) %
+        7
+    ];
+  }
+  timeToSeconds(timeStr) {
+    const [hours, minutes, seconds] = timeStr.split(':').map(Number);
+    return hours * 3600 + minutes * 60 + seconds;
   }
 
   async create(createDto: CreateCourseTimetableDto | CourseTimetables) {
     const { course_id } = createDto;
-    const startTimeStamp = new Date(createDto.start_time).getTime();
-    const endTimeStamp = new Date(createDto.start_time).getTime();
     const end_day =
-      startTimeStamp > endTimeStamp
+      this.timeToSeconds(createDto.start_time) >
+      this.timeToSeconds(createDto.end_time)
         ? this.getNextDay(createDto.day)
         : createDto.day;
 
@@ -78,36 +68,19 @@ export class CourseTimetablesService {
 
     // The database trigger will handle overlap validation automatically
     try {
-      return await this.courseTimetablesRepository
-        .createQueryBuilder()
-        .insert()
-        .into(CourseTimetables)
-        .values([
-          {
-            ...createDto,
-            end_day,
-            unique_id: IdGenerator.generateUniqueId(),
-          },
-        ])
-        .orIgnore()
-        .execute();
+      return await this.courseTimetablesRepository.save({
+        ...createDto,
+        end_day,
+        unique_id: IdGenerator.generateUniqueId(),
+      });
     } catch (error: any) {
-      // Handle optimized database trigger errors with structured error codes
-      console.log('Error in creating course timetable:', error);
-      // Handle timetable conflict errors
-      if (error.message?.includes('TIMETABLE_CONFLICT:')) {
-        const cleanMessage = error.message.replace('TIMETABLE_CONFLICT: ', '');
-        throw new BadRequestException(cleanMessage);
+      // You can also handle unique constraint, validation etc.
+      if (error.code === '23505') {
+        throw new BadRequestException('Duplicate timetable slot');
       }
-      // Handle validation errors
-      if (error.message?.includes('VALIDATION_ERROR:')) {
-        const cleanMessage = error.message.replace('VALIDATION_ERROR: ', '');
-        throw new BadRequestException(cleanMessage);
-      }
-      // Fallback for any other trigger errors
-      if (error.code === 'P0001') {
-        throw new BadRequestException(error.message);
-      }
+
+      console.log('Error while creating course timetable:', error);
+      // Fallback
       throw error;
     }
   }

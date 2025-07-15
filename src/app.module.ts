@@ -10,7 +10,7 @@ import { CourseTimetablesModule } from './modules/apis/course-timetables/course-
 import { StudentCourseMappingModule } from './modules/apis/student-course-mapping/student-course-mapping.module';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { dbConfig } = require('../ormconfig');
+const dbConfig = require('../ormconfig');
 
 @Module({
   imports: [
