@@ -35,12 +35,6 @@ export class CourseTimetables {
   @Column({ type: 'time' })
   end_time: string;
 
-  @Column({
-    type: 'enum',
-    enum: COURSE_TIMETABLE_DAYS,
-  })
-  end_day: string;
-
   @ManyToOne(() => Courses, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'course_id', referencedColumnName: 'unique_id' })
   course_id: string;

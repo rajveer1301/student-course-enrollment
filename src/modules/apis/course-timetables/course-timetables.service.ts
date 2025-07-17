@@ -52,11 +52,6 @@ export class CourseTimetablesService {
 
   async create(createDto: CreateCourseTimetableDto | CourseTimetables) {
     const { course_id } = createDto;
-    const end_day =
-      this.timeToSeconds(createDto.start_time) >
-      this.timeToSeconds(createDto.end_time)
-        ? this.getNextDay(createDto.day)
-        : createDto.day;
 
     const courseDetails = await this.courseTimetablesRepository.query(
       `select unique_id from courses where unique_id = '${course_id}'`,
@@ -65,12 +60,15 @@ export class CourseTimetablesService {
     if (!courseDetails.length) {
       throw new BadRequestException('Invalid Course Id');
     }
+    // this.timeToSeconds(createDto.start_time) >
+    // this.timeToSeconds(createDto.end_time)
+    //   ? this.getNextDay(createDto.day)
+    //   : createDto.day;
 
     // The database trigger will handle overlap validation automatically
     try {
       return await this.courseTimetablesRepository.save({
         ...createDto,
-        end_day,
         unique_id: IdGenerator.generateUniqueId(),
       });
     } catch (error: any) {
