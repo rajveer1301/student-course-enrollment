@@ -1,49 +1,26 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 import {
-  ExceptionFilter,
-  Catch,
   ArgumentsHost,
+  BadRequestException,
+  Catch,
+  ExceptionFilter,
   HttpException,
-  HttpStatus,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
 
-@Catch()
+@Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {
-  catch(exception: unknown, host: ArgumentsHost) {
+  catch(exception: BadRequestException, host: ArgumentsHost): any {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
-
-    const isHttpException = exception instanceof HttpException;
-
-    const status = isHttpException
-      ? exception.getStatus()
-      : HttpStatus.INTERNAL_SERVER_ERROR;
-
-    const exceptionResponse = isHttpException
-      ? (exception.getResponse() as any)
-      : null;
-
-    const message = isHttpException
-      ? exceptionResponse?.message || exception.message
-      : 'Internal server error';
-
-    const errorType = isHttpException
-      ? exception.constructor.name
-      : 'InternalServerError';
-
-    const details = Array.isArray(message) ? message : [message];
-
-    response.status(status).json({
-      statusCode: status,
-      success: false,
-      message: typeof message === 'string' ? message : 'Request failed',
-      error: {
-        type: errorType,
-        details,
-      },
-      timestamp: new Date().toISOString(),
-      path: request.url,
+    const status = exception.getStatus();
+    const messages = (exception.getResponse() as any)?.message || [];
+    // @ts-ignore
+    response.status(status as number).json({
+      status_code: status,
+      data: null,
+      message: Array.isArray(messages) ? messages[0] : messages,
+      error_messages: Array.isArray(messages) ? messages : [messages],
+      error: true,
     });
   }
 }

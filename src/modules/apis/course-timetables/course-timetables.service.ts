@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindManyOptions, In, Repository } from 'typeorm';
+import { FindConditions, In, IsNull, Repository } from 'typeorm';
 import {
   CreateCourseTimetableDto,
   GetCourseTimeTablesDto,
@@ -12,72 +12,86 @@ import {
 } from './course-timetables.dto';
 import { CourseTimetables } from './course-timetables.entity';
 import { IdGenerator } from 'src/common/Idgenerator';
+import { CoursesService } from '../courses/courses.service';
+const DAYS = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
 
 @Injectable()
 export class CourseTimetablesService {
   constructor(
     @InjectRepository(CourseTimetables)
     private readonly courseTimetablesRepository: Repository<CourseTimetables>,
+
+    private readonly courseService: CoursesService,
   ) {}
 
   // Note: Overlap validation is handled by database trigger
 
-  getNextDay(day) {
-    return [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ][
-      ([
-        'Monday',
-        'Tuesday',
-        'Wednesday',
-        'Thursday',
-        'Friday',
-        'Saturday',
-        'Sunday',
-      ].indexOf(day) +
-        1) %
-        7
-    ];
+  getNextDay(day: string): string {
+    const index = DAYS.indexOf(day);
+    return DAYS[(index + 1) % 7];
   }
-  timeToSeconds(timeStr) {
-    const [hours, minutes, seconds] = timeStr.split(':').map(Number);
+
+  timeToSeconds(timeStr: string): number {
+    const [hours = 0, minutes = 0, seconds = 0] = timeStr
+      .split(':')
+      .map(Number);
     return hours * 3600 + minutes * 60 + seconds;
+  }
+
+  splitTimetableIfCrossesMidnight(
+    dto: CreateCourseTimetableDto,
+  ): CourseTimetables[] {
+    const { day, start_time, end_time, course_id } = dto;
+    const payload: CourseTimetables[] = [
+      {
+        ...dto,
+        unique_id: IdGenerator.generateUniqueId(),
+      },
+    ];
+
+    const startSeconds = this.timeToSeconds(start_time);
+    const endSeconds = this.timeToSeconds(end_time);
+
+    if (startSeconds > endSeconds) {
+      const nextDay = this.getNextDay(day);
+      payload[0].end_time = '23:59:59';
+
+      payload.push({
+        day: nextDay,
+        start_time: '00:00:00',
+        end_time,
+        course_id,
+        parent_id: payload[0].unique_id,
+        unique_id: IdGenerator.generateUniqueId(),
+      });
+    }
+
+    return payload;
   }
 
   async create(createDto: CreateCourseTimetableDto | CourseTimetables) {
     const { course_id } = createDto;
 
-    const courseDetails = await this.courseTimetablesRepository.query(
-      `select unique_id from courses where unique_id = '${course_id}'`,
-    );
+    const course = await this.courseService.findOne(course_id);
+    if (!course) throw new BadRequestException('Invalid Course Id');
 
-    if (!courseDetails.length) {
-      throw new BadRequestException('Invalid Course Id');
-    }
-    // this.timeToSeconds(createDto.start_time) >
-    // this.timeToSeconds(createDto.end_time)
-    //   ? this.getNextDay(createDto.day)
-    //   : createDto.day;
-
-    // The database trigger will handle overlap validation automatically
+    const payload = this.splitTimetableIfCrossesMidnight(createDto);
     try {
-      return await this.courseTimetablesRepository.save({
-        ...createDto,
-        unique_id: IdGenerator.generateUniqueId(),
-      });
+      return await this.courseTimetablesRepository.save(payload);
     } catch (error: any) {
       // You can also handle unique constraint, validation etc.
-      if (error.code === '23505') {
-        throw new BadRequestException('Duplicate timetable slot');
-      }
-
       console.log('Error while creating course timetable:', error);
+      if (error.code === '23P01') {
+        throw new BadRequestException('Overlapping timetable slot');
+      }
       // Fallback
       throw error;
     }
@@ -88,34 +102,56 @@ export class CourseTimetablesService {
   ): Promise<CourseTimetables[]> {
     try {
       const { limit: take, skip, course_ids } = getCourseTimeTablesDto;
-      const findManyOptions: FindManyOptions<CourseTimetables> = {
-        relations: ['course_id.college_id'],
+      const whereConditions: FindConditions<CourseTimetables> = {
+        parent_id: IsNull(),
       };
-
-      if (take && skip) {
-        findManyOptions.take = take;
-        findManyOptions.skip = skip;
+      if (course_ids?.length) {
+        whereConditions.course_id = In(course_ids);
       }
+      const parent_schedules = await this.courseTimetablesRepository.find({
+        where: whereConditions,
+        take,
+        skip,
+        order: { day: 'ASC', start_time: 'ASC' },
+        relations: ['course_id'],
+      });
 
-      if (course_ids) {
-        findManyOptions.where = {
-          course_id: {
-            unique_id: In(course_ids),
-          },
-        } as any;
-      }
-      return await this.courseTimetablesRepository.find(findManyOptions);
-    } catch (err) {
-      throw err;
+      const child_schedules = await this.courseTimetablesRepository.find({
+        where: {
+          parent_id: In(parent_schedules.map((s) => s.unique_id)),
+        },
+      });
+
+      child_schedules.forEach((child) => {
+        const parentIndex = parent_schedules.findIndex(
+          (p) => p.unique_id === child.parent_id,
+        );
+        if (parentIndex !== -1) {
+          parent_schedules[parentIndex].end_time = child.end_time;
+        }
+      });
+
+      return parent_schedules;
+    } catch (error: any) {
+      console.log('Error while fetching course timetables:', error);
+      throw error;
     }
   }
 
   async findOne(id: string): Promise<CourseTimetables> {
-    const timetable = await this.courseTimetablesRepository.findOne({
-      where: { unique_id: id },
-    });
-    if (!timetable) throw new NotFoundException('Course timetable not found');
-    return timetable;
+    const [parent, child] = await Promise.all([
+      this.courseTimetablesRepository.findOne({
+        where: { unique_id: id, parent_id: IsNull() },
+        relations: ['course_id'],
+      }),
+      this.courseTimetablesRepository.findOne({
+        where: { parent_id: id },
+      }),
+    ]);
+    if (!parent) throw new NotFoundException('Course timetable not found');
+
+    parent.end_time = child?.end_time || parent.end_time;
+    return parent;
   }
 
   async update(
